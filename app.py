@@ -4,13 +4,13 @@ import io
 import zipfile
 
 # --- Configurações da Página ---
-st.set_page_config(page_title="Otimizador de Imagens RTX", layout="centered")
+st.set_page_config(page_title="Otimizador de Imagens", layout="centered")
 
-st.title("🚀 Otimizador de Imagens (Padrão RTX)")
+st.title("🚀 Otimizador de Imagens")
 st.write("""
 **Regras aplicadas:**
 1. Largura: **1440px** (proporcional)
-2. Tamanho Máximo: **100KB**
+2. Tamanho Alvo: **< 95KB** (Margem de segurança para limite de 100KB)
 3. Formato: **WebP**
 4. Fundo: **Preto** (remove transparência)
 """)
@@ -21,13 +21,13 @@ def processar_imagem(image_file):
     img = Image.open(image_file)
     nome_original = image_file.name.rsplit('.', 1)[0]
     
-    # 1. Redimensionar (LANCZOS)
+    # 1. Redimensionar (LANCZOS) - Alta Qualidade
     target_width = 1440
     w_percent = (target_width / float(img.size[0]))
     h_size = int((float(img.size[1]) * float(w_percent)))
     img = img.resize((target_width, h_size), Image.Resampling.LANCZOS)
     
-    # 2. Fundo Preto
+    # 2. Fundo Preto (Remover transparência)
     if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
         background = Image.new('RGB', img.size, (0, 0, 0))
         if img.mode == 'P':
@@ -37,19 +37,24 @@ def processar_imagem(image_file):
     else:
         img = img.convert('RGB')
         
-    # 3. Compressão Loop
-    max_size_bytes = 100 * 1024 # 100KB
+    # 3. Compressão Loop com Margem de Segurança
+    # 95KB * 1024 bytes = 97280 bytes. Isso garante que nunca passará de 100KB.
+    max_size_bytes = 95 * 1024 
     quality = 95
     step = 2
     output_buffer = io.BytesIO()
     
+    # Loop para encontrar a melhor qualidade que caiba em 95KB
     while quality > 5:
         output_buffer.seek(0)
         output_buffer.truncate(0)
+        # method=6 é o mais lento, mas gera o menor arquivo com melhor qualidade visual
         img.save(output_buffer, format="WEBP", quality=quality, method=6)
         size = output_buffer.tell()
+        
         if size <= max_size_bytes:
             break
+        
         quality -= step
         
     return output_buffer.getvalue(), f"{nome_original}.webp", size, quality
@@ -60,17 +65,22 @@ uploaded_files = st.file_uploader("Arraste suas imagens aqui (JPG, PNG, WEBP)",
                                   type=['png', 'jpg', 'jpeg', 'webp'])
 
 if uploaded_files:
-    if st.button("Processar Imagens"):
+    process_btn = st.button("Processar Imagens")
+    
+    if process_btn:
         zip_buffer = io.BytesIO()
         progresso = st.progress(0)
         status_text = st.empty()
         
+        # Criar ZIP
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
             total = len(uploaded_files)
             
             for i, uploaded_file in enumerate(uploaded_files):
+                # Feedback visual
+                status_text.text(f"Otimizando {uploaded_file.name}...")
+                
                 # Processar
-                status_text.text(f"Processando {uploaded_file.name}...")
                 img_data, novo_nome, tamanho, q_final = processar_imagem(uploaded_file)
                 
                 # Adicionar ao ZIP
@@ -79,16 +89,23 @@ if uploaded_files:
                 # Atualizar barra
                 progresso.progress((i + 1) / total)
                 
-                # Mostrar resultado na tela (opcional)
-                st.success(f"✅ {novo_nome} | {tamanho/1024:.1f} KB | Q: {q_final}%")
+                # Mostrar resultado na tela
+                kb_size = tamanho / 1024
+                # Se ficar verde (sucesso) ou amarelo (atenção se ficou muito comprimido)
+                cor = "✅" if kb_size <= 96 else "⚠️" 
+                st.write(f"{cor} **{novo_nome}**: {kb_size:.2f} KB (Qualidade: {q_final}%)")
+
+        status_text.text("Concluído!")
+        progresso.progress(100)
 
         # Botão de Download Final
         st.markdown("---")
-        st.write("### Tudo pronto!")
+        st.success("Processamento finalizado! Baixe seus arquivos abaixo:")
+        
         st.download_button(
-            label="⬇️ Baixar Todas as Imagens (ZIP)",
+            label="⬇️ Baixar Imagens Otimizadas (ZIP)",
             data=zip_buffer.getvalue(),
-            file_name="imagens_otimizadas.zip",
+            file_name="imagens_otimizadas_95kb.zip",
             mime="application/zip",
             type="primary"
         )
