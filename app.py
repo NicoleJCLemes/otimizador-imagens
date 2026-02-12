@@ -21,11 +21,17 @@ def processar_imagem(image_file):
     img = Image.open(image_file)
     nome_original = image_file.name.rsplit('.', 1)[0]
     
-    # 1. Redimensionar (LANCZOS) - Alta Qualidade
+    # 1. Redimensionar Inteligente (Sem Upscaling)
     target_width = 1440
-    w_percent = (target_width / float(img.size[0]))
-    h_size = int((float(img.size[1]) * float(w_percent)))
-    img = img.resize((target_width, h_size), Image.Resampling.LANCZOS)
+    
+    # Só redimensiona se a imagem for MAIOR que o alvo
+    if img.size[0] > target_width:
+        w_percent = (target_width / float(img.size[0]))
+        h_size = int((float(img.size[1]) * float(w_percent)))
+        img = img.resize((target_width, h_size), Image.Resampling.LANCZOS)
+    else:
+        # Se for menor ou igual, mantém o tamanho original (evita desfoque)
+        pass
     
     # 2. Fundo Preto (Remover transparência)
     if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
