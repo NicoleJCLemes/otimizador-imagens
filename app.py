@@ -9,10 +9,10 @@ st.set_page_config(page_title="Otimizador de Imagens", layout="centered")
 st.title("🚀 Otimizador de Imagens")
 st.write("""
 **Regras aplicadas:**
-1. Largura: **1440px** (proporcional)
-2. Tamanho Alvo: **< 95KB** (Margem de segurança para limite de 100KB)
-3. Formato: **WebP**
-4. Fundo: **Preto** (remove transparência)
+1. Largura: **Máximo 1440px** (Se for menor, mantém o original. Se maior, reduz).
+2. Peso: **< 95KB** (Margem de segurança para o limite de 100KB).
+3. Formato: **WebP**.
+4. Fundo: **Preto** (Substitui transparência).
 """)
 
 # --- Função de Processamento ---
@@ -24,16 +24,14 @@ def processar_imagem(image_file):
     # 1. Redimensionar Inteligente (Sem Upscaling)
     target_width = 1440
     
-    # Só redimensiona se a imagem for MAIOR que o alvo
+    # Só redimensiona se a largura original for MAIOR que 1440px
     if img.size[0] > target_width:
         w_percent = (target_width / float(img.size[0]))
         h_size = int((float(img.size[1]) * float(w_percent)))
         img = img.resize((target_width, h_size), Image.Resampling.LANCZOS)
-    else:
-        # Se for menor ou igual, mantém o tamanho original (evita desfoque)
-        pass
     
     # 2. Fundo Preto (Remover transparência)
+    # Importante fazer isso mesmo se a imagem for pequena
     if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
         background = Image.new('RGB', img.size, (0, 0, 0))
         if img.mode == 'P':
@@ -43,8 +41,7 @@ def processar_imagem(image_file):
     else:
         img = img.convert('RGB')
         
-    # 3. Compressão Loop com Margem de Segurança
-    # 95KB * 1024 bytes = 97280 bytes. Isso garante que nunca passará de 100KB.
+    # 3. Compressão Loop com Margem de Segurança (95KB)
     max_size_bytes = 95 * 1024 
     quality = 95
     step = 2
@@ -54,7 +51,7 @@ def processar_imagem(image_file):
     while quality > 5:
         output_buffer.seek(0)
         output_buffer.truncate(0)
-        # method=6 é o mais lento, mas gera o menor arquivo com melhor qualidade visual
+        # method=6 garante a melhor compactação possível do WebP
         img.save(output_buffer, format="WEBP", quality=quality, method=6)
         size = output_buffer.tell()
         
@@ -63,7 +60,7 @@ def processar_imagem(image_file):
         
         quality -= step
         
-    return output_buffer.getvalue(), f"{nome_original}.webp", size, quality
+    return output_buffer.getvalue(), f"{nome_original}.webp", size, quality, img.size[0]
 
 # --- Interface de Upload ---
 uploaded_files = st.file_uploader("Arraste suas imagens aqui (JPG, PNG, WEBP)", 
@@ -71,13 +68,14 @@ uploaded_files = st.file_uploader("Arraste suas imagens aqui (JPG, PNG, WEBP)",
                                   type=['png', 'jpg', 'jpeg', 'webp'])
 
 if uploaded_files:
-    process_btn = st.button("Processar Imagens")
-    
-    if process_btn:
+    if st.button("Processar Imagens"):
         zip_buffer = io.BytesIO()
         progresso = st.progress(0)
         status_text = st.empty()
         
+        # Área de resultados visuais
+        result_container = st.container()
+
         # Criar ZIP
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
             total = len(uploaded_files)
@@ -87,7 +85,7 @@ if uploaded_files:
                 status_text.text(f"Otimizando {uploaded_file.name}...")
                 
                 # Processar
-                img_data, novo_nome, tamanho, q_final = processar_imagem(uploaded_file)
+                img_data, novo_nome, tamanho, q_final, largura_final = processar_imagem(uploaded_file)
                 
                 # Adicionar ao ZIP
                 zip_file.writestr(novo_nome, img_data)
@@ -95,11 +93,12 @@ if uploaded_files:
                 # Atualizar barra
                 progresso.progress((i + 1) / total)
                 
-                # Mostrar resultado na tela
+                # Mostrar resultado na lista
                 kb_size = tamanho / 1024
-                # Se ficar verde (sucesso) ou amarelo (atenção se ficou muito comprimido)
                 cor = "✅" if kb_size <= 96 else "⚠️" 
-                st.write(f"{cor} **{novo_nome}**: {kb_size:.2f} KB (Qualidade: {q_final}%)")
+                
+                with result_container:
+                    st.text(f"{cor} {novo_nome} | {kb_size:.2f} KB | Largura: {largura_final}px | Q: {q_final}%")
 
         status_text.text("Concluído!")
         progresso.progress(100)
@@ -111,7 +110,7 @@ if uploaded_files:
         st.download_button(
             label="⬇️ Baixar Imagens Otimizadas (ZIP)",
             data=zip_buffer.getvalue(),
-            file_name="imagens_otimizadas_95kb.zip",
+            file_name="imagens_otimizadas_rtx.zip",
             mime="application/zip",
             type="primary"
         )
